@@ -19,7 +19,7 @@ def stitch_images(images, n_pairs = 10, normalize=True):
     # compute Homography
     H = computeH(coords1, coords2, normalize)
     homographies.append(H)
-    warped = warp(prev_img, H)
+    warped, x_offset, y_offset = warp(prev_img, H)
   
 # def select_points(img, n):
 #   plt.imshow(img)
@@ -63,30 +63,40 @@ def warp(image, H):
   # ys = np.repeat(np.arange(ymin, ymax), xmax-xmin)
   ys = mgrid[1].reshape(-1)
   back_transformed = np.linalg.inv(H) @ np.array([xs, ys, np.ones(len(xs))]) # 3xN
-  R, G, B = interpolate_points(back_transformed[:2,:], img_arr)
+  R, G, B = interpolate_points(back_transformed[:2]/back_transformed[2], img_arr)
   warped = np.stack([R.reshape(xmax-xmin,-1), G.reshape(xmax-xmin,-1), B.reshape(xmax-xmin,-1)], 2)
-  return warped
+  warped = np.clip(np.around(warped), 0, 255).astype(np.uint8)
+  return warped, -1*xmin, -1*ymin
 
 def get_borders(image, H):
   corners = np.c_[(0,0,1),(0,image.shape[1],1),(image.shape[0], 0,1),(image.shape[0],image.shape[1],1)]
   temp_xyz = np.array(H @ corners)
-  temp_xy = np.array(temp_xyz[:2] / temp_xyz[2], ddtype=np.int32)
+  temp_xy = np.array(temp_xyz[:2] / temp_xyz[2], dtype=np.int32)
   min_pts = temp_xy.min(1)
   max_pts = temp_xy.max(1)
   return (min_pts[0], min_pts[1], max_pts[0], max_pts[1])
 
-def interpolate_points(transformed_pts, img):
+def interpolate_points(back_trans_pts, img):
   # transformed_pts : 2xN np array
   # img : 3d np.array of image
   rgb = []
-  xs = np.arange(img.shape[0])
-  ys = np.arange(img.shape[1])
-  txs = transformed_pts[0]
-  tys = transformed_pts[1]
+  mgrid = np.mgrid[0:img.shape[0], 0:img.shape[1]].reshape(2,-1)
+  # xs = mgrid[0].reshape(-1)
+  # ys = mgrid[1].reshape(-1)
+  # txs = back_trans_pts[0]
+  # tys = back_trans_pts[1]
+  # n_iter = int(np.floor(len(txs)/intp_block))
   for i in range(3):
     zs = img[:,:,i].reshape(-1)
-    intp_f = interpolate.interp2d(xs, ys, zs, kind="cubic", fill_value=0)
-    rgb.append(intp_f(txs[0:1000], tys[0:1000]))
+    intp_values = interpolate.griddata(mgrid.T, zs, back_trans_pts.T, method="cubic", fill_value=0)
+    rgb.append(intp_values)
+    #intp_f = interpolate.interp2d(xs, ys, zs, kind="cubic", fill_value=0)
+    # temp = []
+    # # since number of pts is very large, we need to iterate
+    # for j in range(n_iter):
+    #   temp.append(intp_f(txs[j*intp_block:(j+1)*intp_block], tys[j*intp_block:(j+1)*intp_block]))
+    # temp.append(intp_f(txs[n_iter*intp_block:], tys[tys[n_iter*intp_block:]]))
+    # rgb.append(np.array(temp).reshape(-1))
   return rgb
 
 def normalize_points(points):

@@ -27,4 +27,5 @@ coords1 = coords1[:, [1,0]]
 coords2 = coords2[:, [1,0]]
 
 H = image_stitch.computeH(coords1, coords2, False)
-image_stitch.warp(np.array(left2), H)
+warped_img, x_offset, y_offset = image_stitch.warp(np.array(left2), H)
+plt.imshow(warped_img)
