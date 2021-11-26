@@ -108,8 +108,6 @@ def warp(image, H):
   (xmin, ymin, xmax, ymax) = get_borders(img_arr, H)
   mgrid = np.mgrid[xmin:xmax, ymin:ymax]
   xs = mgrid[0].reshape(-1)
-  # xs = np.tile(np.arange(xmin,xmax), ymax-ymin)
-  # ys = np.repeat(np.arange(ymin, ymax), xmax-xmin)
   ys = mgrid[1].reshape(-1)
   back_transformed = np.linalg.inv(H) @ np.array([xs, ys, np.ones(len(xs))]) # 3xN
   R, G, B = interpolate_points(back_transformed[:2]/back_transformed[2], img_arr)
@@ -126,27 +124,25 @@ def get_borders(image, H):
   return (min_pts[0], min_pts[1], max_pts[0], max_pts[1])
 
 def interpolate_points(back_trans_pts, img):
-  # transformed_pts : 2xN np array
-  # img : 3d np.array of image
+  """
+  back_trans_pts : 2xN np array
+  img : 3d np.array of image
+  """
   print("Interpolating..")
   rgb = []
-  mgrid = np.mgrid[0:img.shape[0], 0:img.shape[1]].reshape(2,-1)
-  # xs = mgrid[0].reshape(-1)
-  # ys = mgrid[1].reshape(-1)
-  # txs = back_trans_pts[0]
-  # tys = back_trans_pts[1]
-  # n_iter = int(np.floor(len(txs)/intp_block))
+  xs = np.arange(img.shape[0])
+  ys = np.arange(img.shape[1])
+  txs = back_trans_pts[0]
+  tys = back_trans_pts[1]
+  outer_txs = (txs < 0) | (txs > img.shape[0])
+  outer_tys = (tys < 0) | (tys > img.shape[1])
   for i in range(3):
-    zs = img[:,:,i].reshape(-1)
-    intp_values = interpolate.griddata(mgrid.T, zs, back_trans_pts.T, method="cubic", fill_value=0)
+    zs = img[:,:,i]
+    spline = interpolate.RectBivariateSpline(xs, ys, zs)
+    intp_values = spline.ev(txs, tys)
+    intp_values[outer_txs] = 0
+    intp_values[outer_tys] = 0
     rgb.append(intp_values)
-    #intp_f = interpolate.interp2d(xs, ys, zs, kind="cubic", fill_value=0)
-    # temp = []
-    # # since number of pts is very large, we need to iterate
-    # for j in range(n_iter):
-    #   temp.append(intp_f(txs[j*intp_block:(j+1)*intp_block], tys[j*intp_block:(j+1)*intp_block]))
-    # temp.append(intp_f(txs[n_iter*intp_block:], tys[tys[n_iter*intp_block:]]))
-    # rgb.append(np.array(temp).reshape(-1))
   return rgb
 
 def normalize_points(points):
