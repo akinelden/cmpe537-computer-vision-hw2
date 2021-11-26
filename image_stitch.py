@@ -5,29 +5,68 @@ from scipy import interpolate
 import scipy
 
 def stitch_images(images, n_pairs = 10, normalize=True):
-  homographies = []
-  prev_img = None
-  for img in images:
-    if prev_img is None:
-      prev_img = img
+  """
+  images: List of images to stitch (left to right)
+  n_pairs: Number of pairs to select for each image pair
+  normalize: Whether to normalize data points
+  """
+  if len(images) < 2:
+    raise Exception("At least 2 images are required")
+  med = int(len(images)/2)
+  # calculate homographies for left images of the center
+  left_homographies = get_homographies(list(reversed(images[:med+1])), n_pairs, normalize)
+  # now reverse the left homographies since it was right to left
+  left_homographies.reverse()
+  right_homographies = get_homographies(images[med:], n_pairs, normalize)
+  warped_tuples = []
+  print("Starting to warp left images")
+  for img, H in zip(images[:med], left_homographies):
+    warped_tuples.append(warp(img, H))
+  warped_tuples.append((np.array(images[med]), 0, 0))
+  print("Starting to warp right images")
+  for img, H in zip(images[med+1:], right_homographies):
+    warped_tuples.append(warp(img, H))
+  
+  print("Starting to stitch and blend images")
+  stitched = None; rmax_offset = 0; cmax_offset = 0
+  for right_img, r_offset, c_offset in warped_tuples:
+    # if first image, initialize values
+    if stitched is None:
+      stitched = right_img
+      rmax_offset = r_offset
+      cmax_offset = c_offset
       continue
-    # coord1 = select_points(prev_img, n_pairs)
-    # coord2 = select_points(img, n_pairs)
-    
+    stitched = stitch_and_blend(stitched, right_img, rmax_offset-r_offset, cmax_offset-c_offset)
+    rmax_offset = max(rmax_offset, r_offset)
+    # c_offset will always max at left most image
+  print("Done")
+  return stitched
+
+def get_homographies(images, n_pairs, normalize):
+  """
+  Returns the list of homographies of each image which transforms them to most left image
+  (Transforms right images to left)
+  """
+  homographies = []
+  target_img = images[0]
+  for source_img in images[1:]:
     # select pairs from images
-    coords1, coords2 = select_pairs(prev_img, img, n_pairs)
+    coords1, coords2 = select_pairs(source_img, target_img, n_pairs)
     # compute Homography
     H = computeH(coords1, coords2, normalize)
+    # if this is not the first homography, multiply with last matrix to get homography Hn1 (Hn,n-1 @ Hn-1,1 = Hn,1)
+    if (len(homographies) > 0):
+      H = homographies[-1] @ H
     homographies.append(H)
-    warped, x_offset, y_offset = warp(prev_img, H)
-  
-# def select_points(img, n):
-#   plt.imshow(img)
-#   coords = plt.ginput(n,show_clicks=True)
-#   plt.show()
-#   return np.array(coords)
+    target_img = source_img
+  return homographies
   
 def select_pairs(img1, img2, n):
+  """
+  img1: source image
+  img2: target image
+  n: number of point pairs
+  """
   print("Please select pairs one by one.")
   plt.subplot(211)
   plt.imshow(img1)
@@ -41,6 +80,11 @@ def select_pairs(img1, img2, n):
   return (coords1[:,[1,0]], coords2[:,[1,0]])
 
 def computeH(im1Points, im2Points, normalize=True):
+  """
+  im1Points: points of source image
+  im2Points: points of target image
+  normalize: whether to normalize
+  """
   Points1, Points2 = im1Points, im2Points
   T1, T2 = None, None
   if normalize:
@@ -55,6 +99,11 @@ def computeH(im1Points, im2Points, normalize=True):
   return H
 
 def warp(image, H):
+  """
+  image: Image as PIL or ndarray (it will convert to numpy array)
+  H: homography matrix as ndarray
+  """
+  print("Warping..")
   img_arr = np.array(image)
   (xmin, ymin, xmax, ymax) = get_borders(img_arr, H)
   mgrid = np.mgrid[xmin:xmax, ymin:ymax]
@@ -79,6 +128,7 @@ def get_borders(image, H):
 def interpolate_points(back_trans_pts, img):
   # transformed_pts : 2xN np array
   # img : 3d np.array of image
+  print("Interpolating..")
   rgb = []
   mgrid = np.mgrid[0:img.shape[0], 0:img.shape[1]].reshape(2,-1)
   # xs = mgrid[0].reshape(-1)
@@ -116,3 +166,26 @@ def get_matrix_A(points1, points2):
     rows.append([0, 0, 0, -x1, -y1, -1, y2*x1, y2*y1, y2])
   return np.array(rows)
 
+def stitch_and_blend(left_img, right_img, row_offset, col_offset):
+  """
+  left_img: Left image as np.array
+  right_img: Right image as np.array
+  row_offset: difference between starting row of right and left images (can be negative if right image is higher than left)
+  col_offset: difference between starting column of right and left images (must be nonnegative always since left image is at left)
+  """
+  print("Stitching images..")
+  if col_offset < 0:
+    raise Exception("col_offset cannot be negative")
+  rmax = max(left_img.shape[0], row_offset + right_img.shape[0]) if row_offset > 0 else max(right_img.shape[0], left_img.shape[0] - row_offset)
+  cmax = max(left_img.shape[1], col_offset + right_img.shape[1])
+  stitched = np.zeros((rmax, cmax, 3), dtype=np.uint8)
+  
+  # TODO: blending
+  
+  if row_offset > 0: # left image is higher
+    stitched[:left_img.shape[0], :left_img.shape[1]] = left_img
+    stitched[row_offset:row_offset+right_img.shape[0], col_offset:col_offset+right_img.shape[1]] = right_img
+  else: # right image is higher
+    stitched[-row_offset:left_img.shape[0]-row_offset, :left_img.shape[1]] = left_img
+    stitched[:right_img.shape[0], col_offset:col_offset+right_img.shape[1]] = right_img
+  return stitched
