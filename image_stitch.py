@@ -181,11 +181,11 @@ def stitch_and_blend(left_img, right_img, row_offset, col_offset):
   stitched = np.zeros((rmax, cmax, 3), dtype=np.uint8)
   
   # TODO: blending
-  
+  nonzero_x, nonzero_y = np.nonzero(right_img.max(2))
   if row_offset > 0: # left image is higher
     stitched[:left_img.shape[0], :left_img.shape[1]] = left_img
-    stitched[row_offset:row_offset+right_img.shape[0], col_offset:col_offset+right_img.shape[1]] = right_img
+    stitched[nonzero_x + row_offset, nonzero_y + col_offset] = right_img[nonzero_x, nonzero_y]
   else: # right image is higher
     stitched[-row_offset:left_img.shape[0]-row_offset, :left_img.shape[1]] = left_img
-    stitched[:right_img.shape[0], col_offset:col_offset+right_img.shape[1]] = right_img
+    stitched[nonzero_x, nonzero_y + col_offset] = right_img[nonzero_x, nonzero_y]
   return stitched
