@@ -134,6 +134,7 @@ def interpolate_points(back_trans_pts, img):
   ys = np.arange(img.shape[1])
   txs = back_trans_pts[0]
   tys = back_trans_pts[1]
+  # bounds of the transformed image:
   outer_txs = (txs < 0) | (txs > img.shape[0])
   outer_tys = (tys < 0) | (tys > img.shape[1])
   for i in range(3):
@@ -176,12 +177,20 @@ def stitch_and_blend(left_img, right_img, row_offset, col_offset):
   cmax = max(left_img.shape[1], col_offset + right_img.shape[1])
   stitched = np.zeros((rmax, cmax, 3), dtype=np.uint8)
   
-  # TODO: blending
-  nonzero_x, nonzero_y = np.nonzero(right_img.max(2))
   if row_offset > 0: # left image is higher
-    stitched[:left_img.shape[0], :left_img.shape[1]] = left_img
-    stitched[nonzero_x + row_offset, nonzero_y + col_offset] = right_img[nonzero_x, nonzero_y]
+    lr1, lr2, lc1, lc2 = (0, left_img.shape[0], 0, left_img.shape[1])
+    rr1, rr2, rc1, rc2 = (row_offset, row_offset+right_img.shape[0], col_offset, col_offset+right_img.shape[1])
   else: # right image is higher
-    stitched[-row_offset:left_img.shape[0]-row_offset, :left_img.shape[1]] = left_img
-    stitched[nonzero_x, nonzero_y + col_offset] = right_img[nonzero_x, nonzero_y]
+    lr1, lr2, lc1, lc2 = (-row_offset, left_img.shape[0]-row_offset, 0, left_img.shape[1])
+    rr1, rr2, rc1, rc2 = (0, right_img.shape[0], col_offset, col_offset+right_img.shape[1])
+
+  # first put left image
+  stitched[lr1:lr2, lc1:lc2] = left_img
+  # compare left and right image intensities
+  rgb_weight = np.array([0.299, 0.587, 0.114])
+  gray_stitched = np.dot(stitched[rr1:rr2, rc1:rc2], rgb_weight)
+  gray_right = np.dot(right_img, rgb_weight)
+  filtered = gray_right > gray_stitched
+  # set right image to only where its intensity is higher
+  stitched[rr1:rr2, rc1:rc2][filtered] = right_img[filtered]
   return stitched
