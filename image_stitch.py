@@ -4,20 +4,74 @@ from matplotlib import pyplot as plt
 from scipy import interpolate
 import scipy
 
-def stitch_images(images, n_pairs = 10, normalize=True):
+def select_pairs(images, n, file=""):
+  """
+  images: list of images in order
+  n: number of point pairs
+  """
+  points = []
+  for img1, img2 in zip(images[:len(images)-1], images[1:]):
+    print("Please select pairs one from above and one from below image sequentially.")
+    plt.title("Please select pairs one from above and one from below image sequentially.")
+    plt.subplot(211)
+    plt.imshow(img1)
+    plt.subplot(212)
+    plt.imshow(img2)
+    pairs = plt.ginput(2*n,show_clicks=True, timeout=600)
+    # odd items of coords belong to img1, event ones belong to img2
+    coords1 = np.array(pairs[0::2])
+    coords2 = np.array(pairs[1::2])
+    # swap columns since matplotlib x axis refers to columns and y axis refers to rows in image matrix
+    a = np.c_[coords1[:,[1,0]], coords2[:,[1,0]]]
+    points.append(np.c_[coords1[:,[1,0]], coords2[:,[1,0]]])
+  arr = np.array(points).reshape(-1,4)
+  if file != "":
+    np.savetxt(file, arr, delimiter=",")
+  return arr
+
+def load_pairs_from_csv(file):
+  return np.loadtxt(open(file, "rb"), delimiter=",")
+
+def stitch_images(images, pt_pairs, normalize=True):
   """
   images: List of images to stitch (left to right)
   n_pairs: Number of pairs to select for each image pair
   normalize: Whether to normalize data points
+  pts_file: The name of the file in which to save point pairs. If empty string, points are not saved
   """
   if len(images) < 2:
     raise Exception("At least 2 images are required")
   med = int(len(images)/2)
-  # calculate homographies for left images of the center
-  left_homographies = get_homographies(list(reversed(images[:med+1])), n_pairs, normalize)
-  # now reverse the left homographies since it was right to left
-  left_homographies.reverse()
-  right_homographies = get_homographies(images[med:], n_pairs, normalize)
+  if pt_pairs.shape[0] % (len(images)-1) != 0:
+    raise Exception("Format of the pt_pairs array is wrong. Equal number of correspondence points should be provided for each image pair")
+  n_pairs = int(pt_pairs.shape[0] / (len(images)-1))
+  # calculate homographies for left images
+  left_homographies = []
+  for i in reversed(range(med)):
+    source = images[i]
+    target = images[i+1]
+    # points of these images are between [i*n_pairs, (i+1)*n_pairs] since points are from left to right
+    pts = pt_pairs[i*n_pairs:(i+1)*n_pairs]
+    H = computeH(pts[:,:2], pts[:,2:], normalize)
+    # if this is not the first homography, multiply with last matrix to get homography Hn1 (Hn,n-1 @ Hn-1,1 = Hn,1)
+    if (len(left_homographies) > 0):
+      H = left_homographies[0] @ H
+    left_homographies.insert(0,H)
+
+  # calculate homographies for right images
+  right_homographies = [] 
+  for i in range(med+1,len(images)):
+    # source is right, target is left image for right images
+    source = images[i]
+    target = images[i-1]
+    # points of these images are between [(i-1)*n_pairs, i*n_pairs] since points are from right to left
+    pts = pt_pairs[(i-1)*n_pairs:i*n_pairs]
+    H = computeH(pts[:,2:], pts[:,:2], normalize)
+    # if this is not the first homography, multiply with last matrix to get homography Hn1 (Hn,n-1 @ Hn-1,1 = Hn,1)
+    if (len(right_homographies) > 0):
+      H = right_homographies[-1] @ H
+    right_homographies.append(H)
+  
   warped_tuples = []
   print("Starting to warp left images")
   for img, H in zip(images[:med], left_homographies):
@@ -41,43 +95,6 @@ def stitch_images(images, n_pairs = 10, normalize=True):
     # c_offset will always max at left most image
   print("Done")
   return stitched
-
-def get_homographies(images, n_pairs, normalize):
-  """
-  Returns the list of homographies of each image which transforms them to most left image
-  (Transforms right images to left)
-  """
-  homographies = []
-  target_img = images[0]
-  for source_img in images[1:]:
-    # select pairs from images
-    coords1, coords2 = select_pairs(source_img, target_img, n_pairs)
-    # compute Homography
-    H = computeH(coords1, coords2, normalize)
-    # if this is not the first homography, multiply with last matrix to get homography Hn1 (Hn,n-1 @ Hn-1,1 = Hn,1)
-    if (len(homographies) > 0):
-      H = homographies[-1] @ H
-    homographies.append(H)
-    target_img = source_img
-  return homographies
-  
-def select_pairs(img1, img2, n):
-  """
-  img1: source image
-  img2: target image
-  n: number of point pairs
-  """
-  print("Please select pairs one by one.")
-  plt.subplot(211)
-  plt.imshow(img1)
-  plt.subplot(212)
-  plt.imshow(img2)
-  coords = plt.ginput(2*n,show_clicks=True, timeout=600)
-  # odd items of coords belong to img1, event ones belong to img2
-  coords1 = np.array(coords[0::2])
-  coords2 = np.array(coords[1::2])
-  # swap columns since matplotlib x axis refers to columns and y axis refers to rows in image matrix
-  return (coords1[:,[1,0]], coords2[:,[1,0]])
 
 def computeH(im1Points, im2Points, normalize=True):
   """
