@@ -22,7 +22,6 @@ def select_pairs(images, n, file=""):
     coords1 = np.array(pairs[0::2])
     coords2 = np.array(pairs[1::2])
     # swap columns since matplotlib x axis refers to columns and y axis refers to rows in image matrix
-    a = np.c_[coords1[:,[1,0]], coords2[:,[1,0]]]
     points.append(np.c_[coords1[:,[1,0]], coords2[:,[1,0]]])
   arr = np.array(points).reshape(-1,4)
   if file != "":
@@ -188,19 +187,24 @@ def stitch_and_blend(left_img, right_img, row_offset, col_offset):
   col_offset: difference between starting column of right and left images (must be nonnegative always since left image is at left)
   """
   print("Stitching images..")
-  if col_offset < 0:
-    raise Exception("col_offset cannot be negative")
   rmax = max(left_img.shape[0], row_offset + right_img.shape[0]) if row_offset > 0 else max(right_img.shape[0], left_img.shape[0] - row_offset)
-  cmax = max(left_img.shape[1], col_offset + right_img.shape[1])
+  cmax = max(left_img.shape[1], col_offset + right_img.shape[1]) if col_offset > 0 else max(right_img.shape[1], left_img.shape[1] - col_offset)
   stitched = np.zeros((rmax, cmax, 3), dtype=np.uint8)
   
   if row_offset > 0: # left image is higher
-    lr1, lr2, lc1, lc2 = (0, left_img.shape[0], 0, left_img.shape[1])
-    rr1, rr2, rc1, rc2 = (row_offset, row_offset+right_img.shape[0], col_offset, col_offset+right_img.shape[1])
+    lr1, lr2 = (0, left_img.shape[0])
+    rr1, rr2 = (row_offset, row_offset+right_img.shape[0])
   else: # right image is higher
-    lr1, lr2, lc1, lc2 = (-row_offset, left_img.shape[0]-row_offset, 0, left_img.shape[1])
-    rr1, rr2, rc1, rc2 = (0, right_img.shape[0], col_offset, col_offset+right_img.shape[1])
+    lr1, lr2 = (-row_offset, left_img.shape[0]-row_offset)
+    rr1, rr2 = (0, right_img.shape[0])
 
+  if col_offset > 0:
+    lc1, lc2 = (0, left_img.shape[1])
+    rc1, rc2 = (col_offset, col_offset+right_img.shape[1])
+  else: # right image is higher
+    lc1, lc2 = (-col_offset, left_img.shape[1]-col_offset)
+    rc1, rc2 = (0, right_img.shape[1])
+  
   # first put left image
   stitched[lr1:lr2, lc1:lc2] = left_img
   # compare left and right image intensities
